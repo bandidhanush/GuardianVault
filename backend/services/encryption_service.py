@@ -100,7 +100,9 @@ def decrypt_video(encrypted_path: str, output_path: str) -> str:
     if 1 <= pad_len <= 16:
         plaintext = plaintext[:-pad_len]
 
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    dest_dir = os.path.dirname(output_path)
+    if dest_dir:
+        os.makedirs(dest_dir, exist_ok=True)
     with open(output_path, "wb") as f:
         f.write(plaintext)
 

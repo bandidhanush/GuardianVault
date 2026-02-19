@@ -83,8 +83,10 @@ async def startup_event():
     logger.info("✅ Demo cameras seeded")
     # Pre-load ML models
     try:
-        from backend.ml.accident_classifier import accident_classifier
-        from backend.ml.severity_classifier import severity_classifier
+        import ml.accident_classifier
+        import ml.severity_classifier
+        ml.accident_classifier.load_accident_model()
+        ml.severity_classifier.load_severity_model()
         logger.info("✅ ML models initialized")
     except Exception as e:
         logger.warning(f"⚠️  ML model loading warning: {e}")

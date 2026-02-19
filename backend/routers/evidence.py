@@ -6,7 +6,7 @@ import io
 import logging
 import tempfile
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse, FileResponse
 from sqlalchemy.orm import Session
 
@@ -52,9 +52,10 @@ def verify_evidence(incident_id: str, db: Session = Depends(get_db)):
     }
 
 
+
 @router.get("/{incident_id}/stream")
 def stream_video(incident_id: str, db: Session = Depends(get_db)):
-    """Decrypt video and stream it for playback."""
+    """Decrypt video and stream it for playback with Range support."""
     incident = db.query(Incident).filter(Incident.id == incident_id).first()
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
@@ -62,37 +63,45 @@ def stream_video(incident_id: str, db: Session = Depends(get_db)):
     if not incident.video_clip_path or not os.path.exists(incident.video_clip_path):
         raise HTTPException(status_code=404, detail="Encrypted video file not found")
 
-    # Decrypt to temp file
-    tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
-    tmp_path = tmp.name
-    tmp.close()
+    # Use a persistent temp path per incident to allow seek/range requests
+    temp_dir = os.path.join(settings.STORAGE_PATH, "temp")
+    os.makedirs(temp_dir, exist_ok=True)
+    tmp_path = os.path.join(temp_dir, f"cached_stream_{incident_id}.mp4")
 
     try:
-        decrypt_video(incident.video_clip_path, tmp_path)
-
-        def iterfile():
+        # Only decrypt/transcode if the file doesn't exist or is empty
+        if not os.path.exists(tmp_path) or os.path.getsize(tmp_path) == 0:
+            raw_tmp = tmp_path + ".raw"
+            decrypt_video(incident.video_clip_path, raw_tmp)
+            
+            # Transcode to H.264/AAC with faststart for maximum compatibility
+            # This fixes issues where OpenCV's mp4v doesn't play in Safari/Chrome
+            import subprocess
             try:
-                with open(tmp_path, "rb") as f:
-                    while chunk := f.read(65536):
-                        yield chunk
-            finally:
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
-
-        return StreamingResponse(
-            iterfile(),
+                cmd = [
+                    "ffmpeg", "-y", "-i", raw_tmp,
+                    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+                    "-c:a", "aac", "-movflags", "+faststart",
+                    tmp_path
+                ]
+                subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if os.path.exists(raw_tmp): os.remove(raw_tmp)
+            except:
+                # Fallback to the raw decrypted file if ffmpeg fails
+                if os.path.exists(raw_tmp):
+                    os.rename(raw_tmp, tmp_path)
+        
+        return FileResponse(
+            tmp_path,
             media_type="video/mp4",
-            headers={
-                "Content-Disposition": f'inline; filename="evidence_{incident_id}.mp4"',
-                "X-Evidence-ID": incident_id,
-                "X-SHA256": incident.video_hash_sha256 or "",
-            },
+            filename=f"evidence_{incident_id}.mp4"
         )
     except Exception as e:
         if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+            try: os.remove(tmp_path)
+            except: pass
         logger.error(f"[Evidence] Stream error: {e}")
-        raise HTTPException(status_code=500, detail=f"Decryption error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Streaming error: {str(e)}")
 
 
 @router.get("/{incident_id}/thumbnail")
@@ -146,6 +155,7 @@ def download_certificate(incident_id: str, db: Session = Depends(get_db)):
                                      backColor=colors.HexColor("#f0f4ff"))
 
         story = []
+        from reportlab.platypus import Image as RLImage
 
         # Header
         story.append(Paragraph("🛡️ DIGITAL EVIDENCE CERTIFICATE", title_style))
@@ -153,6 +163,20 @@ def download_certificate(incident_id: str, db: Session = Depends(get_db)):
         story.append(Paragraph("Cryptographically Secured Video Evidence", subtitle_style))
         story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#0f3460")))
         story.append(Spacer(1, 0.4*cm))
+
+        # Thumbnail Image
+        if incident.thumbnail_path and os.path.exists(incident.thumbnail_path):
+            try:
+                # Resize image for PDF (approx 12cm width)
+                img = RLImage(incident.thumbnail_path, width=12*cm, height=6.75*cm)
+                img.hAlign = 'CENTER'
+                story.append(img)
+                story.append(Paragraph("Fig 1: Instant of detected accident", 
+                                      ParagraphStyle("Caption", parent=styles["Normal"], 
+                                                   fontSize=8, alignment=TA_CENTER, textColor=colors.grey)))
+                story.append(Spacer(1, 0.4*cm))
+            except Exception as e:
+                logger.warning(f"Could not add thumbnail to PDF: {e}")
 
         # Incident Details
         story.append(Paragraph("INCIDENT DETAILS", header_style))

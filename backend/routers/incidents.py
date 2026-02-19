@@ -1,6 +1,7 @@
 """
 Incidents router: history, filtering, status management.
 """
+import os
 import logging
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -10,6 +11,7 @@ from sqlalchemy import desc
 from database.connection import get_db
 from database.models import Incident
 from database.schemas import IncidentResponse
+from config import settings
 
 router = APIRouter(prefix="/api/incidents", tags=["incidents"])
 logger = logging.getLogger(__name__)
@@ -90,6 +92,32 @@ def delete_incident(incident_id: str, db: Session = Depends(get_db)):
     incident = db.query(Incident).filter(Incident.id == incident_id).first()
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
+
+    # Delete physical files
+    if incident.video_clip_path and os.path.exists(incident.video_clip_path):
+        try:
+            os.remove(incident.video_clip_path)
+            logger.info(f"Deleted video clip: {incident.video_clip_path}")
+        except Exception as e:
+            logger.error(f"Error deleting video clip {incident.video_clip_path}: {e}")
+
+    if incident.thumbnail_path and os.path.exists(incident.thumbnail_path):
+        try:
+            os.remove(incident.thumbnail_path)
+            logger.info(f"Deleted thumbnail: {incident.thumbnail_path}")
+        except Exception as e:
+            logger.error(f"Error deleting thumbnail {incident.thumbnail_path}: {e}")
+
+    # Delete cached stream files from temp
+    temp_dir = os.path.join(settings.STORAGE_PATH, "temp")
+    cache_path = os.path.join(temp_dir, f"cached_stream_{incident_id}.mp4")
+    if os.path.exists(cache_path):
+        try:
+            os.remove(cache_path)
+            logger.info(f"Deleted cached stream: {cache_path}")
+        except Exception as e:
+            logger.error(f"Error deleting cache: {e}")
+
     db.delete(incident)
     db.commit()
-    return {"message": "Incident deleted"}
+    return {"message": "Incident and associated files deleted"}

@@ -54,9 +54,14 @@ export default function Evidence() {
                     <button className="btn btn-ghost btn-sm gap-2" onClick={load}>
                         <RefreshCw size={14} /> RE-VERIFY
                     </button>
-                    <button className="btn btn-primary btn-sm gap-2">
+                    <a
+                        href={evidenceApi.certificateUrl(incident.id)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-primary btn-sm gap-2"
+                    >
                         <Share2 size={14} /> EXPORT DOSSIER
-                    </button>
+                    </a>
                 </div>
             </div>
 

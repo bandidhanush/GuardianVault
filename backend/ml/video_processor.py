@@ -106,9 +106,37 @@ def extract_video_clip(
     padding: float = 10.0
 ) -> Optional[str]:
     """
-    Cut a clip from video using OpenCV (no ffmpeg dependency).
+    Cut a clip from video using FFmpeg for better browser compatibility.
     Adds padding seconds before and after the accident window.
+    Uses -movflags +faststart for immediate web playback.
     """
+    clip_start = max(0, start_time - padding)
+    clip_end = end_time + padding
+    duration = clip_end - clip_start
+
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+    # Try FFmpeg first (faster and better for web)
+    import subprocess
+    try:
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", str(clip_start),
+            "-i", video_path,
+            "-t", str(duration),
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-crf", "23",
+            "-c:a", "aac",
+            "-movflags", "+faststart",
+            output_path
+        ]
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return output_path
+    except Exception as e:
+        print(f"[VideoProcessor] FFmpeg clip failed: {e}. Falling back to OpenCV...")
+
+    # Fallback to OpenCV if FFmpeg fails
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         return None
@@ -116,34 +144,24 @@ def extract_video_clip(
     video_fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    total_duration = total_frames / video_fps
-
-    clip_start = max(0, start_time - padding)
-    clip_end = min(total_duration, end_time + padding)
-
+    
     start_frame = int(clip_start * video_fps)
     end_frame = int(clip_end * video_fps)
 
     cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
-
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     out = cv2.VideoWriter(output_path, fourcc, video_fps, (width, height))
 
     frame_count = 0
     while cap.get(cv2.CAP_PROP_POS_FRAMES) <= end_frame:
         ret, frame = cap.read()
-        if not ret:
-            break
+        if not ret: break
         out.write(frame)
         frame_count += 1
 
     cap.release()
     out.release()
-
-    if frame_count == 0:
-        return None
-    return output_path
+    return output_path if frame_count > 0 else None
 
 
 def process_live_frame(frame_bgr: np.ndarray) -> dict:

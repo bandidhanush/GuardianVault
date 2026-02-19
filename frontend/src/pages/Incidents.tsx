@@ -40,9 +40,16 @@ export default function Incidents() {
     };
 
     const deleteIncident = async (id: string) => {
-        if (!confirm('Delete this incident record?')) return;
-        await incidentApi.delete(id);
-        load();
+        if (!confirm('Delete this incident record? Are you sure? This will remove all associated evidence files.')) return;
+
+        try {
+            await incidentApi.delete(id);
+            // Refresh the list
+            await load();
+        } catch (error) {
+            console.error('Failed to delete incident:', error);
+            alert('Error deleting record. Please check server logs.');
+        }
     };
 
     return (

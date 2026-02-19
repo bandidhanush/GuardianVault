@@ -73,7 +73,7 @@ class Incident(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     camera = relationship("Camera", back_populates="incidents")
-    evidence = relationship("Evidence", back_populates="incident", uselist=False)
+    evidence = relationship("Evidence", back_populates="incident", uselist=False, cascade="all, delete-orphan")
 
 
 class Evidence(Base):

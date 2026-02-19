@@ -23,22 +23,27 @@ export default function LiveFeed() {
         cameraApi.list().then(setCameras).catch(console.error);
     }, []);
 
-    const startWebcam = async () => {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-            streamRef.current = stream;
-            if (videoRef.current) {
-                videoRef.current.srcObject = stream;
-                videoRef.current.play();
+    const rtspRef = useRef<HTMLImageElement>(null);
+
+    const startFeed = async () => {
+        if (selectedCamera === 'webcam') {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                streamRef.current = stream;
+                if (videoRef.current) {
+                    videoRef.current.srcObject = stream;
+                    videoRef.current.play();
+                }
+            } catch (e) {
+                alert('Could not access webcam: ' + (e as Error).message);
+                return;
             }
-            setIsDetecting(true);
-            startFrameCapture();
-        } catch (e) {
-            alert('Could not access webcam: ' + (e as Error).message);
         }
+        setIsDetecting(true);
+        startFrameCapture();
     };
 
-    const stopWebcam = () => {
+    const stopFeed = () => {
         streamRef.current?.getTracks().forEach(t => t.stop());
         streamRef.current = null;
         if (intervalRef.current) clearInterval(intervalRef.current);
@@ -49,38 +54,45 @@ export default function LiveFeed() {
 
     const startFrameCapture = useCallback(() => {
         intervalRef.current = setInterval(async () => {
-            if (!videoRef.current || !canvasRef.current) return;
+            const captureSource = selectedCamera === 'webcam' ? videoRef.current : rtspRef.current;
+            if (!captureSource || !canvasRef.current) return;
+
             const canvas = canvasRef.current;
             const ctx = canvas.getContext('2d');
             if (!ctx) return;
 
-            canvas.width = videoRef.current.videoWidth || 640;
-            canvas.height = videoRef.current.videoHeight || 480;
-            ctx.drawImage(videoRef.current, 0, 0);
+            const width = (captureSource as any).videoWidth || (captureSource as any).naturalWidth || 640;
+            const height = (captureSource as any).videoHeight || (captureSource as any).naturalHeight || 480;
 
-            const b64 = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+            if (width && height) {
+                canvas.width = width;
+                canvas.height = height;
+                ctx.drawImage(captureSource, 0, 0);
 
-            try {
-                const form = new FormData();
-                form.append('frame_b64', b64);
-                form.append('camera_id', selectedCamera);
+                const b64 = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
 
-                const res = await fetch('/api/detect/live-frame', { method: 'POST', body: form });
-                if (res.ok) {
-                    const data = await res.json();
-                    setConfidence(data.confidence || 0);
-                    setIsAccident(data.accident_detected || false);
-                    setSeverityLabel(data.severity_label || '');
-                    setFrameCount(c => c + 1);
+                try {
+                    const form = new FormData();
+                    form.append('frame_b64', b64);
+                    form.append('camera_id', selectedCamera);
+
+                    const res = await fetch('/api/detect/live-frame', { method: 'POST', body: form });
+                    if (res.ok) {
+                        const data = await res.json();
+                        setConfidence(data.confidence || 0);
+                        setIsAccident(data.accident_detected || false);
+                        setSeverityLabel(data.severity_label || '');
+                        setFrameCount(c => c + 1);
+                    }
+                } catch {
+                    // network error
                 }
-            } catch {
-                // network error
             }
         }, 1000); // 1 FPS
     }, [selectedCamera]);
 
     useEffect(() => {
-        return () => stopWebcam();
+        return () => stopFeed();
     }, []);
 
     return (
@@ -118,14 +130,29 @@ export default function LiveFeed() {
                                 </div>
                                 <button
                                     className={`btn ${isDetecting ? 'btn-danger' : 'btn-primary'} btn-sm px-6`}
-                                    onClick={isDetecting ? stopWebcam : startWebcam}
+                                    onClick={isDetecting ? stopFeed : startFeed}
                                 >
                                     {isDetecting ? 'DEACTIVATE' : 'ACTIVATE AI SCAN'}
                                 </button>
                             </div>
 
                             <div className="relative aspect-video bg-[#050505] flex items-center justify-center overflow-hidden">
-                                <video ref={videoRef} className="w-full h-full object-cover" muted playsInline />
+                                {selectedCamera === 'webcam' ? (
+                                    <video ref={videoRef} className="w-full h-full object-cover" muted playsInline />
+                                ) : (
+                                    <img
+                                        ref={rtspRef}
+                                        src={isDetecting ? `/api/cameras/${selectedCamera}/stream` : ''}
+                                        className="w-full h-full object-cover"
+                                        alt="RTSP Stream"
+                                        onError={(e) => {
+                                            if (isDetecting) {
+                                                console.error("Stream error");
+                                                // Optionally show error overlay
+                                            }
+                                        }}
+                                    />
+                                )}
                                 <canvas ref={canvasRef} className="hidden" />
 
                                 {!isDetecting && (
