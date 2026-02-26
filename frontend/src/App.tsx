@@ -68,7 +68,7 @@ const Sidebar: React.FC<{ isConnected: boolean; accidentCount: number }> = ({ is
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             boxShadow: 'var(--shadow-glow-cyan)',
           }}>
-            <Shield size={20} color="#000" />
+            <Shield size={20} color="#ffff" />
           </div>
           <div>
             <h1 style={{ fontSize: 11, letterSpacing: '0.08em' }}>ROAD SAFETY<br />MONITOR</h1>

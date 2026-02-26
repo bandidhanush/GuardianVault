@@ -147,8 +147,8 @@ async def upload_and_detect(
         db.commit()
         db.refresh(incident)
 
-        # ── 9. Send SMS alert ────────────────────────────────────────────────
-        alert_result = send_accident_alert({
+        # ── 9. Send SMS alerts (to Police and Hospital) ─────────────────────
+        alert_payload = {
             "incident_id": incident.id,
             "timestamp": incident.timestamp,
             "severity_label": detection["severity_label"],
@@ -158,7 +158,18 @@ async def upload_and_detect(
             "location_lon": lon,
             "confidence": detection["max_confidence"],
             "camera_name": camera_name,
-        })
+        }
+
+        # Alert Police
+        if camera and camera.police_phone:
+            send_accident_alert(alert_payload, to_number=camera.police_phone)
+        
+        # Alert Hospital
+        if camera and camera.hospital_phone:
+            send_accident_alert(alert_payload, to_number=camera.hospital_phone)
+
+        # Main broadcast alert (fallback to default)
+        alert_result = send_accident_alert(alert_payload)
 
         if alert_result.get("success"):
             incident.alert_sent = True
@@ -236,19 +247,87 @@ async def analyze_live_frame(
         if camera_id not in _consecutive_accident_frames:
             _consecutive_accident_frames[camera_id] = 0
 
-        if result["accident_detected"] and result["confidence"] >= settings.MODEL_CONFIDENCE_THRESHOLD:
-            _consecutive_accident_frames[camera_id] += 1
-        else:
-            _consecutive_accident_frames[camera_id] = 0
-
         severity_level = None
         severity_label = None
 
-        if result["accident_detected"]:
+        if result["accident_detected"] and result["confidence"] >= settings.MODEL_CONFIDENCE_THRESHOLD:
+            _consecutive_accident_frames[camera_id] += 1
             from ml.severity_classifier import predict_severity_from_array
             sev = predict_severity_from_array(frame)
             severity_level = sev["severity_level"]
             severity_label = sev["severity_label"]
+
+            # Trigger alert after 3 consecutive frames
+            if _consecutive_accident_frames[camera_id] == 3:
+                logger.info(f"🚨 LIVE ACCIDENT DETECTED on camera {camera_id} - Triggering Alert")
+                camera = db.query(Camera).filter(Camera.id == camera_id).first()
+                location_name = camera.location_name if camera else "Live Feed"
+                
+                # Save thumbnail
+                thumb_dir = os.path.join(settings.STORAGE_PATH, "thumbnails")
+                os.makedirs(thumb_dir, exist_ok=True)
+                thumb_path = os.path.join(thumb_dir, f"live_thumb_{uuid.uuid4()}.jpg")
+                from ml.video_processor import generate_thumbnail
+                generate_thumbnail(frame, thumb_path)
+                
+                # Record Incident
+                incident = Incident(
+                    camera_id=camera_id if camera_id != "default" else None,
+                    accident_confidence=result["confidence"],
+                    severity_level=severity_level,
+                    severity_label=severity_label,
+                    location_lat=camera.latitude if camera else None,
+                    location_lon=camera.longitude if camera else None,
+                    location_name=location_name,
+                    thumbnail_path=thumb_path,
+                )
+                db.add(incident)
+                db.commit()
+                db.refresh(incident)
+                incident_id = incident.id
+                
+                # SMS notify
+                alert_payload = {
+                    "incident_id": incident.id,
+                    "timestamp": incident.timestamp,
+                    "severity_label": severity_label,
+                    "severity_level": severity_level,
+                    "location_name": location_name,
+                    "location_lat": camera.latitude if camera else None,
+                    "location_lon": camera.longitude if camera else None,
+                    "confidence": result["confidence"],
+                    "camera_name": camera.name if camera else "Live Node",
+                }
+
+                # Alert Police
+                if camera and camera.police_phone:
+                    send_accident_alert(alert_payload, to_number=camera.police_phone)
+                
+                # Alert Hospital
+                if camera and camera.hospital_phone:
+                    send_accident_alert(alert_payload, to_number=camera.hospital_phone)
+
+                # Send main alert (to default number in .env)
+                alert_result = send_accident_alert(alert_payload)
+                
+                if alert_result.get("success"):
+                    incident.alert_sent = True
+                    incident.alert_sent_at = datetime.utcnow()
+                    db.commit()
+                
+                # Global sync via WebSocket
+                await manager.broadcast_accident({
+                    "incident_id": incident.id,
+                    "camera_id": camera_id,
+                    "severity": severity_label,
+                    "confidence": result["confidence"],
+                    "timestamp": incident.timestamp.isoformat(),
+                    "location": location_name,
+                })
+                # Reset counter after incident creation
+                _consecutive_accident_frames[camera_id] = 0
+        else:
+            _consecutive_accident_frames[camera_id] = 0
 
         # Broadcast live update
         await manager.broadcast_detection_update(

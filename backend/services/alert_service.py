@@ -8,7 +8,7 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 
-def send_accident_alert(incident_data: dict) -> dict:
+def send_accident_alert(incident_data: dict, to_number: str = None) -> dict:
     """
     Send SMS alert via Twilio when an accident is detected.
     incident_data keys: incident_id, timestamp, severity_label, severity_level,
@@ -26,26 +26,33 @@ def send_accident_alert(incident_data: dict) -> dict:
     )
 
     message = (
-        f"🚨 ACCIDENT DETECTED\n"
-        f"Time: {timestamp_str}\n"
-        f"Severity: {severity_emoji} {incident_data.get('severity_label', 'Unknown')}\n"
-        f"Location: {incident_data.get('location_name', 'Unknown')} "
-        f"({incident_data.get('location_lat', 'N/A')}, {incident_data.get('location_lon', 'N/A')})\n"
-        f"Confidence: {incident_data.get('confidence', 0) * 100:.1f}%\n"
-        f"Camera: {incident_data.get('camera_name', 'Unknown')}\n"
-        f"Evidence ID: {incident_data.get('incident_id', 'N/A')}\n"
-        f"System: Road Safety Monitor v1.0"
+        f"🚨 ACCIDENT: {incident_data.get('severity_label', 'Unknown')}\n"
+        f"Loc: {incident_data.get('location_name', 'Unknown')}\n"
+        f"Cam: {incident_data.get('camera_name', 'Unknown')}\n"
+        f"ID: {incident_data.get('incident_id', 'N/A')[:8]}\n"
+        f"Monitor: GuardianVault"
     )
+
+    target_number = to_number or settings.ALERT_TO_NUMBER
+    
+    # E.164 Clean-up: Ensure number starts with + and has country code
+    if target_number:
+        target_number = target_number.strip().replace(" ", "")
+        if not target_number.startswith('+'):
+            if target_number.startswith('91') and len(target_number) > 10:
+                target_number = "+" + target_number
+            else:
+                target_number = "+91" + target_number
 
     # Check if Twilio credentials are configured
     if not settings.TWILIO_ACCOUNT_SID or not settings.TWILIO_AUTH_TOKEN:
         logger.warning("[AlertService] Twilio credentials not configured. Simulating alert.")
-        logger.info(f"[AlertService] SIMULATED SMS:\n{message}")
+        logger.info(f"[AlertService] SIMULATED SMS TO {target_number}:\n{message}")
         return {
             "success": True,
             "simulated": True,
             "message": message,
-            "to": settings.ALERT_TO_NUMBER,
+            "to": target_number,
             "sid": "SIMULATED_SID",
         }
 
@@ -55,14 +62,14 @@ def send_accident_alert(incident_data: dict) -> dict:
         sms = client.messages.create(
             body=message,
             from_=settings.TWILIO_FROM_NUMBER,
-            to=settings.ALERT_TO_NUMBER,
+            to=target_number,
         )
-        logger.info(f"[AlertService] SMS sent successfully. SID: {sms.sid}")
+        logger.info(f"[AlertService] SMS sent successfully to {target_number}. SID: {sms.sid}")
         return {
             "success": True,
             "simulated": False,
             "message": message,
-            "to": settings.ALERT_TO_NUMBER,
+            "to": target_number,
             "sid": sms.sid,
         }
     except Exception as e:
