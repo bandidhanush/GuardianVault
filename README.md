@@ -1,4 +1,4 @@
-<img width="1258" height="1778" alt="image" src="https://github.com/user-attachments/assets/ef0f455c-49ca-4994-b8cb-072b86a51ea4" /># Guardian Vault
+# Guardian Vault
 
 A full-stack AI-powered system for real-time CCTV monitoring, accident detection, and secure evidence management.
 
