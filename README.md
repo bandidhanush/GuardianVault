@@ -1,4 +1,4 @@
-# Guardian Vault 🛡️
+# Guardian Vault 𓆩✧𓆪
 
 A full-stack AI-powered system for real-time CCTV monitoring, accident detection, and secure evidence management.
 
