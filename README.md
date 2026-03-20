@@ -1,7 +1,13 @@
-# Road Accident Detection & Emergency Alert System
+<img width="1258" height="1778" alt="image" src="https://github.com/user-attachments/assets/ef0f455c-49ca-4994-b8cb-072b86a51ea4" /># Guardian Vault
 
 A full-stack AI-powered system for real-time CCTV monitoring, accident detection, and secure evidence management.
 
+![image alt](https://github.com/bandidhanush/GuardianVault/blob/main/frontend/WorkingScreens/VidoeStream.png?raw=true)
+![image alt](https://github.com/bandidhanush/GuardianVault/blob/main/frontend/WorkingScreens/Detection.png?raw=true)
+
+## Evidence 
+![image alt](https://github.com/bandidhanush/GuardianVault/blob/main/frontend/WorkingScreens/Evidence1.png?raw=true)
+![image alt](https://github.com/bandidhanush/GuardianVault/blob/main/frontend/WorkingScreens/Evidence2.png?raw=true)
 ## 🚀 Features
 - **AI Detection**: YOLOv8-powered accident detection and severity classification.
 - **Secure Evidence**: AES-256 encrypted video storage with SHA-256/MD5 hashing for court admissibility (Section 65B compliance).
